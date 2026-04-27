@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import Navbar from "./components/navbar";
+import Hero from "./components/hero";
 
 export default function Home() {
   return (
@@ -20,7 +21,8 @@ export default function Home() {
               <Link href='/'>Jewelry and Watches</Link>
               <Link href='/'>Refurbished</Link>
           </div>
-      <main className="p-6">
+      <main className="py-6">
+        <Hero/>
         <h1>Homepage</h1>
         
       </main>
