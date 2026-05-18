@@ -18,7 +18,9 @@ export async function GET(req: Request) {
     }
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT w.*, l.listg_title, l.listg_status, l.listg_fixedprice, l.listg_startprice
+      `SELECT w.*, l.listg_title, l.listg_status, l.listg_fixedprice, l.listg_startprice,
+        l.listg_format, l.listg_enddate,
+        (SELECT MIN(i.image_url) FROM ListingImage i WHERE i.listg_id = l.listg_id) AS image_url
        FROM Watchlist w
        JOIN Listing l ON l.listg_id = w.listg_id
        WHERE w.user_id = ?

@@ -1,3 +1,4 @@
+DROP DATABASE IF EXISTS ebay_clone;
 CREATE DATABASE IF NOT EXISTS ebay_clone;
 USE ebay_clone;
 
@@ -7,7 +8,10 @@ CREATE TABLE IF NOT EXISTS `User` (
   lname VARCHAR(50) NOT NULL,
   phone VARCHAR(20) NOT NULL,
   email VARCHAR(100) NOT NULL UNIQUE,
-  password VARCHAR(255) NOT NULL
+  password VARCHAR(255) NOT NULL,
+  profile_picture VARCHAR(500) DEFAULT NULL,
+  role VARCHAR(10) NOT NULL DEFAULT 'user',
+  is_banned TINYINT(1) NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS BuyerAddress (
@@ -22,7 +26,10 @@ CREATE TABLE IF NOT EXISTS BuyerAddress (
 
 CREATE TABLE IF NOT EXISTS Category (
   ctgry_id INT AUTO_INCREMENT PRIMARY KEY,
-  ctgry_name VARCHAR(50) NOT NULL
+  ctgry_name VARCHAR(50) NOT NULL,
+  ctgry_image VARCHAR(500) DEFAULT NULL,
+  parent_id INT NULL,
+  FOREIGN KEY (parent_id) REFERENCES Category(ctgry_id)
 );
 
 CREATE TABLE IF NOT EXISTS Product (
@@ -118,6 +125,7 @@ CREATE TABLE IF NOT EXISTS OrderList (
   order_date DATE NOT NULL,
   order_status VARCHAR(20) NOT NULL,
   order_totalamount DECIMAL(10, 2) NOT NULL,
+  CHECK (order_status IN ('Pending', 'Paid', 'Rejected')),
   FOREIGN KEY (user_id) REFERENCES `User`(user_id),
   FOREIGN KEY (baddr_id) REFERENCES BuyerAddress(baddr_id)
 );
@@ -139,6 +147,7 @@ CREATE TABLE IF NOT EXISTS Payment (
   paymt_amount DECIMAL(10, 2) NOT NULL,
   paymt_date DATE NOT NULL,
   paymt_status VARCHAR(20) NOT NULL,
+  CHECK (paymt_status IN ('Pending', 'Completed', 'Rejected')),
   FOREIGN KEY (order_id) REFERENCES OrderList(order_id)
 );
 
@@ -151,13 +160,15 @@ CREATE TABLE IF NOT EXISTS Courier (
 
 CREATE TABLE IF NOT EXISTS Shipment (
   shpmt_id INT AUTO_INCREMENT PRIMARY KEY,
-  order_id INT NOT NULL,
+  order_id INT NOT NULL UNIQUE,
   courr_id INT NOT NULL,
   shpmt_trackingno VARCHAR(50) NOT NULL,
   shpmt_shipdate DATE NOT NULL,
   shpmt_expectdate DATE NOT NULL,
   shpmt_deliverydate DATE,
   shpmt_status VARCHAR(20) NOT NULL,
+  CHECK (shpmt_status IN ('Shipped', 'Delivered')),
+  CHECK (shpmt_status <> 'Delivered' OR shpmt_deliverydate IS NOT NULL),
   FOREIGN KEY (order_id) REFERENCES OrderList(order_id),
   FOREIGN KEY (courr_id) REFERENCES Courier(courr_id)
 );
@@ -169,8 +180,59 @@ CREATE TABLE IF NOT EXISTS Feedback (
   seller_user_id INT NOT NULL,
   fdbck_comment TEXT NOT NULL,
   fdbck_type VARCHAR(20) NOT NULL,
+  fdbck_rating TINYINT NOT NULL,
   fdbck_date DATE NOT NULL,
+  UNIQUE KEY unique_feedback_per_transaction (listg_id, buyer_user_id, seller_user_id),
+  CHECK (fdbck_type IN ('Positive', 'Neutral', 'Negative')),
+  CHECK (fdbck_rating BETWEEN 1 AND 5),
   FOREIGN KEY (listg_id) REFERENCES Listing(listg_id),
   FOREIGN KEY (buyer_user_id) REFERENCES `User`(user_id),
   FOREIGN KEY (seller_user_id) REFERENCES `User`(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS Report (
+  rprt_id INT AUTO_INCREMENT PRIMARY KEY,
+  reporter_user_id INT NOT NULL,
+  reported_user_id INT NULL,
+  listg_id INT NULL,
+  rprt_reason VARCHAR(100) NOT NULL,
+  rprt_description TEXT,
+  rprt_date DATE NOT NULL,
+  rprt_status VARCHAR(20) NOT NULL DEFAULT 'Pending',
+  FOREIGN KEY (reporter_user_id) REFERENCES `User`(user_id),
+  FOREIGN KEY (reported_user_id) REFERENCES `User`(user_id),
+  FOREIGN KEY (listg_id) REFERENCES Listing(listg_id)
+);
+
+CREATE TABLE IF NOT EXISTS Conversation (
+  conv_id INT AUTO_INCREMENT PRIMARY KEY,
+  listg_id INT NULL,
+  buyer_id INT NOT NULL,
+  seller_id INT NOT NULL,
+  conv_created DATE NOT NULL,
+  FOREIGN KEY (listg_id) REFERENCES Listing(listg_id),
+  FOREIGN KEY (buyer_id) REFERENCES `User`(user_id),
+  FOREIGN KEY (seller_id) REFERENCES `User`(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS Message (
+  msg_id INT AUTO_INCREMENT PRIMARY KEY,
+  conv_id INT NOT NULL,
+  sender_id INT NOT NULL,
+  msg_content TEXT NOT NULL,
+  msg_created DATETIME NOT NULL,
+  msg_read DATETIME NULL,
+  FOREIGN KEY (conv_id) REFERENCES Conversation(conv_id) ON DELETE CASCADE,
+  FOREIGN KEY (sender_id) REFERENCES `User`(user_id)
+);
+
+CREATE TABLE IF NOT EXISTS Notification (
+  notif_id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  notif_type VARCHAR(30) NOT NULL,
+  notif_content TEXT NOT NULL,
+  notif_link VARCHAR(300) NULL,
+  notif_is_read TINYINT(1) NOT NULL DEFAULT 0,
+  notif_created DATETIME NOT NULL,
+  FOREIGN KEY (user_id) REFERENCES `User`(user_id)
 );

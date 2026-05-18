@@ -11,7 +11,7 @@ export async function GET(
     const { id } = await params;
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT user_id, fname, lname, phone, email FROM \`User\` WHERE user_id = ? LIMIT 1`,
+      `SELECT user_id, fname, lname, profile_picture FROM \`User\` WHERE user_id = ? LIMIT 1`,
       [id]
     );
 

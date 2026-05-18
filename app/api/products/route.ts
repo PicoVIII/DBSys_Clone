@@ -41,6 +41,13 @@ export async function POST(req: Request) {
       );
     }
 
+    const [userCheck] = await pool.query<RowDataPacket[]>(
+      "SELECT role FROM `User` WHERE user_id = ? LIMIT 1", [user_id]
+    );
+    if (userCheck.length > 0 && String(userCheck[0].role) === "admin") {
+      return NextResponse.json({ error: "Admins cannot create products" }, { status: 403 });
+    }
+
     const [result] = await pool.execute<ResultSetHeader>(
       `INSERT INTO Product
       (user_id, prdct_name, prdct_brand, prdct_cond, prdct_desc)

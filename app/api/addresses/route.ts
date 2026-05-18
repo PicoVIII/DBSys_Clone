@@ -1,6 +1,31 @@
 import { NextResponse } from "next/server";
-import type { ResultSetHeader } from "mysql2/promise";
+import type { RowDataPacket, ResultSetHeader } from "mysql2/promise";
 import pool from "@/lib/db";
+
+// Gets all saved addresses for a user.
+export async function GET(req: Request) {
+  try {
+    const { searchParams } = new URL(req.url);
+    const user_id = searchParams.get("user_id");
+
+    if (!user_id) {
+      return NextResponse.json({ error: "user_id is required" }, { status: 400 });
+    }
+
+    const [rows] = await pool.query<RowDataPacket[]>(
+      `SELECT * FROM BuyerAddress WHERE user_id = ? ORDER BY baddr_id DESC`,
+      [user_id]
+    );
+
+    return NextResponse.json({ data: rows });
+  } catch (err: unknown) {
+    console.error(err);
+    return NextResponse.json(
+      { error: "Something went wrong loading addresses" },
+      { status: 500 }
+    );
+  }
+}
 
 type AddressBody = {
   user_id: number;

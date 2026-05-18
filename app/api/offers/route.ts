@@ -14,12 +14,34 @@ type OfferDecisionBody = {
   status?: "Accepted" | "Rejected";
 };
 
-// Gets all best offers.
-export async function GET() {
+// Gets best offers, optionally filtered by buyer or seller.
+export async function GET(req: Request) {
   try {
-    const [rows] = await pool.query<RowDataPacket[]>(
-      `SELECT * FROM BestOffer ORDER BY bstof_date DESC, bstof_id DESC`
-    );
+    const { searchParams } = new URL(req.url);
+    const userId = searchParams.get("user_id");
+    const sellerId = searchParams.get("seller_id");
+
+    let sql = `SELECT o.*, l.listg_title, l.listg_status AS listing_status, l.listg_fixedprice,
+      u.fname, u.lname
+      FROM BestOffer o
+      JOIN Listing l ON l.listg_id = o.listg_id
+      JOIN User u ON u.user_id = o.user_id`;
+    const params: (string | number)[] = [];
+    const where: string[] = [];
+
+    if (userId) {
+      where.push("o.user_id = ?");
+      params.push(Number(userId));
+    }
+    if (sellerId) {
+      where.push("l.user_id = ?");
+      params.push(Number(sellerId));
+    }
+
+    if (where.length) sql += " WHERE " + where.join(" AND ");
+    sql += " ORDER BY o.bstof_date DESC, o.bstof_id DESC";
+
+    const [rows] = await pool.query<RowDataPacket[]>(sql, params);
 
     return NextResponse.json({ data: rows });
   } catch (err: unknown) {

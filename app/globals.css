@@ -2,25 +2,61 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #191919;
+  --ebay-blue: #3665f3;
+  --ebay-blue-hover: #2953c8;
+  --ebay-red: #e53238;
+  --ebay-green: #008a00;
+  --ebay-yellow: #f5af02;
+  --ebay-gray-50: #f7f7f7;
+  --ebay-gray-100: #e5e5e5;
+  --ebay-gray-200: #cccccc;
+  --ebay-gray-300: #8f8f8f;
+  --ebay-gray-400: #707070;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: Arial, Helvetica, sans-serif;
-  --font-mono: "Courier New", Courier, monospace;
+  --color-ebay-blue: var(--ebay-blue);
+  --color-ebay-blue-hover: var(--ebay-blue-hover);
+  --color-ebay-red: var(--ebay-red);
+  --color-ebay-green: var(--ebay-green);
+  --color-ebay-yellow: var(--ebay-yellow);
+  --color-ebay-gray-50: var(--ebay-gray-50);
+  --color-ebay-gray-100: var(--ebay-gray-100);
+  --color-ebay-gray-200: var(--ebay-gray-200);
+  --color-ebay-gray-300: var(--ebay-gray-300);
+  --color-ebay-gray-400: var(--ebay-gray-400);
+
+  --font-sans: "Market Sans", Arial, Helvetica, sans-serif;
+  
+  --shadow-soft: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-hover: 0 8px 24px rgba(0, 0, 0, 0.12);
+  --radius-evo: 12px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: "Market Sans", Arial, Helvetica, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Micro animations and standard components */
+.evo-card {
+  transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1), box-shadow 0.2s cubic-bezier(0.2, 0, 0, 1);
+}
+.evo-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-hover);
+}
+
+.evo-button {
+  transition: all 0.2s ease-in-out;
+}
+.evo-button:active {
+  transform: scale(0.98);
 }

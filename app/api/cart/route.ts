@@ -20,7 +20,8 @@ export async function GET(req: Request) {
 
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT c.cart_id, ci.listg_id, ci.quantity, l.listg_title, l.listg_fixedprice,
-        l.listg_quantity AS available_quantity
+        l.listg_quantity AS available_quantity,
+        (SELECT MIN(i.image_url) FROM ListingImage i WHERE i.listg_id = l.listg_id) AS image_url
        FROM Cart c
        JOIN CartItem ci ON ci.cart_id = c.cart_id
        JOIN Listing l ON l.listg_id = ci.listg_id

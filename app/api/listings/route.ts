@@ -25,8 +25,11 @@ export async function GET(req: Request) {
     const category = searchParams.get("category");
     const format = searchParams.get("format");
     const condition = searchParams.get("condition");
-    const minPrice = Number(searchParams.get("minPrice"));
-    const maxPrice = Number(searchParams.get("maxPrice"));
+    const seller = searchParams.get("seller");
+    const status = searchParams.get("status");
+    const minPriceParam = searchParams.get("minPrice");
+    const maxPriceParam = searchParams.get("maxPrice");
+    const sort = searchParams.get("sort") ?? "newest";
     const page = Math.max(Number(searchParams.get("page") ?? 1), 1);
     const limit = Math.min(Math.max(Number(searchParams.get("limit") ?? 20), 1), 50);
     const offset = (page - 1) * limit;
@@ -44,6 +47,11 @@ export async function GET(req: Request) {
       params.push(category);
     }
 
+    if (seller) {
+      where.push("l.user_id = ?");
+      params.push(seller);
+    }
+
     if (format) {
       where.push("LOWER(l.listg_format) = LOWER(?)");
       params.push(format);
@@ -54,33 +62,74 @@ export async function GET(req: Request) {
       params.push(condition);
     }
 
-    if (!Number.isNaN(minPrice)) {
-      where.push("COALESCE(l.listg_fixedprice, l.listg_startprice) >= ?");
-      params.push(minPrice);
+    if (status) {
+      where.push("LOWER(l.listg_status) = LOWER(?)");
+      params.push(status);
     }
 
-    if (!Number.isNaN(maxPrice)) {
-      where.push("COALESCE(l.listg_fixedprice, l.listg_startprice) <= ?");
-      params.push(maxPrice);
+    if (minPriceParam !== null && minPriceParam !== "") {
+      const minPrice = Number(minPriceParam);
+      if (!Number.isNaN(minPrice)) {
+        where.push("COALESCE(l.listg_fixedprice, l.listg_startprice) >= ?");
+        params.push(minPrice);
+      }
+    }
+
+    if (maxPriceParam !== null && maxPriceParam !== "") {
+      const maxPrice = Number(maxPriceParam);
+      if (!Number.isNaN(maxPrice)) {
+        where.push("COALESCE(l.listg_fixedprice, l.listg_startprice) <= ?");
+        params.push(maxPrice);
+      }
     }
 
     const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
 
+    let orderBy = "l.listg_id DESC";
+    switch (sort) {
+      case "price_asc":
+        orderBy = "COALESCE(l.listg_fixedprice, l.listg_startprice) ASC";
+        break;
+      case "price_desc":
+        orderBy = "COALESCE(l.listg_fixedprice, l.listg_startprice) DESC";
+        break;
+      case "ending":
+        orderBy = "l.listg_enddate ASC";
+        break;
+      default:
+        orderBy = "l.listg_id DESC";
+    }
+
+    const [[countRow]] = await pool.query<RowDataPacket[]>(
+      `SELECT COUNT(DISTINCT l.listg_id) AS total
+       FROM Listing l
+       LEFT JOIN Product p ON p.prdct_id = l.prdct_id
+       LEFT JOIN Category c ON c.ctgry_id = l.ctgry_id
+       ${whereSql}`,
+      params
+    );
+
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT l.*, p.prdct_name, p.prdct_cond, c.ctgry_name,
-        MIN(i.image_url) AS image_url
+        MIN(i.image_url) AS image_url,
+        (SELECT COUNT(*) FROM Bid b WHERE b.listg_id = l.listg_id) AS bid_count
       FROM Listing l
       LEFT JOIN Product p ON p.prdct_id = l.prdct_id
       LEFT JOIN ListingImage i ON i.listg_id = l.listg_id
       LEFT JOIN Category c ON c.ctgry_id = l.ctgry_id
       ${whereSql}
       GROUP BY l.listg_id, p.prdct_name, p.prdct_cond, c.ctgry_name
-      ORDER BY l.listg_id DESC
+      ORDER BY ${orderBy}
       LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
 
-    return NextResponse.json({ data: rows, page, limit });
+    return NextResponse.json({
+      data: rows,
+      page,
+      limit,
+      total: Number(countRow?.total ?? 0),
+    });
   } catch (err: unknown) {
     console.error(err);
 
@@ -115,6 +164,13 @@ export async function POST(req: Request) {
         { error: "prdct_id, user_id, ctgry_id, title, format, quantity, startdate, and enddate are required" },
         { status: 400 }
       );
+    }
+
+    const [userCheck] = await pool.query<RowDataPacket[]>(
+      "SELECT role FROM `User` WHERE user_id = ? LIMIT 1", [user_id]
+    );
+    if (userCheck.length > 0 && String(userCheck[0].role) === "admin") {
+      return NextResponse.json({ error: "Admins cannot create listings" }, { status: 403 });
     }
 
     if (!["auction", "fixed"].includes(format.toLowerCase())) {

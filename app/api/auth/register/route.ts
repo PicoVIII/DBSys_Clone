@@ -14,8 +14,8 @@ type RegisterBody = {
 // Registers a new user with a hashed password.
 export async function POST(req: Request) {
   try {
-    const { fname, lname, phone, email, password } =
-      (await req.json()) as RegisterBody;
+    const { fname, lname, phone, email, password, role } =
+      (await req.json()) as RegisterBody & { role?: string };
 
     if (!fname || !lname || !phone || !email || !password) {
       return NextResponse.json(
@@ -25,12 +25,13 @@ export async function POST(req: Request) {
     }
 
     const hashed = await bcrypt.hash(password, 10);
+    const assignedRole = role === 'admin' ? 'admin' : 'user';
 
     const [res] = await pool.execute<ResultSetHeader>(
       `INSERT INTO \`User\` 
-      (fname, lname, phone, email, password)
-      VALUES (?, ?, ?, ?, ?)`,
-      [fname, lname, phone, email, hashed]
+      (fname, lname, phone, email, password, role)
+      VALUES (?, ?, ?, ?, ?, ?)`,
+      [fname, lname, phone, email, hashed, assignedRole]
     );
 
     return NextResponse.json({ id: res.insertId });
