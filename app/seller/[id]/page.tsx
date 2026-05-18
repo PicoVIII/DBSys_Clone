@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import Navbar from "../../components/navbar";
 import ListingCard from "../../components/ListingCard";
 import Link from "next/link";
-import { Star } from "lucide-react";
 
 type Seller = {
   user_id: number;
@@ -31,19 +30,16 @@ type Listing = {
 
 type FeedbackStats = {
   total: number;
-  averageRating: number;
-  five: number;
-  four: number;
-  three: number;
-  two: number;
-  one: number;
+  positive: number;
+  neutral: number;
+  negative: number;
   score: number;
 };
 
 type Review = {
   fdbck_id: number;
   fdbck_comment: string;
-  fdbck_rating: number | null;
+  fdbck_type: string;
   fdbck_date: string;
   listg_id: number;
   listg_title: string;
@@ -70,10 +66,7 @@ export default function SellerProfilePage() {
       fetch(`/api/feedback?seller_id=${sellerId}`).then((r) => r.json()),
     ]).then(([user, list, fb, reviewData]) => {
       setSeller(user.data ?? null);
-      const active = (list.data ?? []).filter(
-        (l: Listing) => l.listg_status?.toLowerCase() === "active"
-      );
-      setListings(active);
+      setListings(list.data ?? []);
       setFeedback(fb.data ?? null);
       setReviews(reviewData.data ?? []);
       setLoading(false);
@@ -133,39 +126,33 @@ export default function SellerProfilePage() {
                 <p className="text-sm text-gray-500">@{username} · eBay member</p>
                 {feedback && feedback.total > 0 && (
                   <div className="flex items-center gap-2 mt-2">
-                    <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                    <span className="text-sm font-semibold">{feedback.averageRating.toFixed(1)} out of 5</span>
-                    <span className="text-sm text-gray-400">({feedback.total} reviews)</span>
+                    <span className="text-sm font-semibold">{feedback.score}% positive feedback</span>
+                    <span className="text-sm text-gray-400">({feedback.total} ratings)</span>
                   </div>
                 )}
               </div>
               <div className="text-sm text-gray-600 sm:text-right">
-                <p><span className="font-semibold text-gray-900">{listings.length}</span> items for sale</p>
+                <p><span className="font-semibold text-gray-900">{listings.filter((l) => l.listg_status?.toLowerCase() === "active").length}</span> active items</p>
+                {listings.filter((l) => l.listg_status?.toLowerCase() !== "active").length > 0 && (
+                  <p className="text-xs text-gray-400 mt-0.5">{listings.filter((l) => l.listg_status?.toLowerCase() !== "active").length} out of stock</p>
+                )}
               </div>
             </div>
           </div>
 
           {feedback && feedback.total > 0 && (
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6 max-w-2xl">
+            <div className="grid grid-cols-3 gap-3 mb-6 max-w-md">
               <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">{feedback.five}</p>
-                <p className="text-xs text-gray-500 mt-1">5 star</p>
+                <p className="text-2xl font-bold text-green-600">{feedback.positive}</p>
+                <p className="text-xs text-gray-500 mt-1">Positive</p>
               </div>
               <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">{feedback.four}</p>
-                <p className="text-xs text-gray-500 mt-1">4 star</p>
+                <p className="text-2xl font-bold text-gray-600">{feedback.neutral}</p>
+                <p className="text-xs text-gray-500 mt-1">Neutral</p>
               </div>
               <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">{feedback.three}</p>
-                <p className="text-xs text-gray-500 mt-1">3 star</p>
-              </div>
-              <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">{feedback.two}</p>
-                <p className="text-xs text-gray-500 mt-1">2 star</p>
-              </div>
-              <div className="bg-white border border-gray-200 rounded-lg p-4 text-center">
-                <p className="text-2xl font-bold text-gray-900">{feedback.one}</p>
-                <p className="text-xs text-gray-500 mt-1">1 star</p>
+                <p className="text-2xl font-bold text-red-600">{feedback.negative}</p>
+                <p className="text-xs text-gray-500 mt-1">Negative</p>
               </div>
             </div>
           )}
@@ -182,15 +169,13 @@ export default function SellerProfilePage() {
                   <div key={review.fdbck_id} className="bg-white border border-gray-200 rounded-lg p-4">
                     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
                       <div>
-                        <div className="flex items-center gap-1 text-yellow-500">
-                          {[1, 2, 3, 4, 5].map((rating) => (
-                            <Star
-                              key={rating}
-                              className={`w-4 h-4 ${rating <= Number(review.fdbck_rating ?? 0) ? "fill-yellow-400" : "fill-none text-gray-300"}`}
-                            />
-                          ))}
-                          <span className="ml-2 text-xs font-semibold text-gray-600">{review.fdbck_rating}/5</span>
-                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          review.fdbck_type === "Positive" ? "bg-green-100 text-green-700" :
+                          review.fdbck_type === "Neutral" ? "bg-yellow-100 text-yellow-700" :
+                          "bg-red-100 text-red-700"
+                        }`}>
+                          {review.fdbck_type}
+                        </span>
                         <p className="text-sm text-gray-700 mt-2">{review.fdbck_comment}</p>
                         <p className="text-xs text-gray-500 mt-2">
                           By {review.buyer_fname} {review.buyer_lname} for{" "}
@@ -213,13 +198,21 @@ export default function SellerProfilePage() {
           {listings.length === 0 ? (
             <div className="text-center py-16 bg-white border border-gray-200 rounded-lg text-gray-500">
               <p className="text-4xl mb-2">📭</p>
-              <p>No active listings from this seller</p>
+              <p>No listings from this seller</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-              {listings.map((l) => (
-                <ListingCard key={l.listg_id} listing={l} />
-              ))}
+              {listings
+                .sort((a, b) => {
+                  const aActive = a.listg_status?.toLowerCase() === "active" ? 0 : 1;
+                  const bActive = b.listg_status?.toLowerCase() === "active" ? 0 : 1;
+                  return aActive - bActive;
+                })
+                .map((l) => (
+                  <div key={l.listg_id} className={l.listg_status?.toLowerCase() !== "active" ? "opacity-60" : ""}>
+                    <ListingCard listing={l} />
+                  </div>
+                ))}
             </div>
           )}
         </div>

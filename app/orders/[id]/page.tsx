@@ -5,7 +5,6 @@ import { useSession } from "next-auth/react";
 import { useRouter, useParams } from "next/navigation";
 import Navbar from "../../components/navbar";
 import Link from "next/link";
-import { Star } from "lucide-react";
 
 type OrderDetail = {
   order_id: number;
@@ -28,6 +27,8 @@ type OrderDetail = {
   buyer_lname: string;
   listg_fixedprice: number;
   image_url?: string;
+  cancel_reason?: string | null;
+  cancel_requested_at?: string | null;
 };
 
 type ShipmentItem = {
@@ -45,7 +46,6 @@ type FeedbackInfo = {
   fdbck_id: number;
   fdbck_comment: string;
   fdbck_type: string;
-  fdbck_rating: number | null;
   fdbck_date: string;
   buyer_user_id?: number;
 };
@@ -114,12 +114,22 @@ export default function OrderDetailPage() {
   }
 
   const matchingShipment = shipments.find((s) => String(s.order_id) === orderId);
+  const hasCancelRequest = Boolean(order.cancel_requested_at);
   const isFinished =
-    order.order_status === "Paid" &&
+    order.order_status === "Completed" ||
     Boolean(
       matchingShipment?.shpmt_deliverydate ||
       matchingShipment?.shpmt_status === "Delivered"
     );
+  const displayStatus = isFinished
+    ? "Completed"
+    : order.order_status === "Cancelled"
+      ? "Cancelled"
+      : hasCancelRequest
+        ? "Cancellation requested"
+        : order.paymt_status === "Paid"
+          ? "Paid"
+          : "Awaiting payment";
 
   return (
     <>
@@ -136,11 +146,13 @@ export default function OrderDetailPage() {
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-bold text-gray-900">Order #{order.order_id}</h1>
           <span className={`text-sm px-3 py-1 rounded-full font-medium ${
-            order.order_status === "Paid" ? "bg-green-100 text-green-700" :
-            order.order_status === "Pending" ? "bg-yellow-100 text-yellow-700" :
-            "bg-red-100 text-red-700"
+            isFinished ? "bg-green-100 text-green-700" :
+            order.order_status === "Cancelled" ? "bg-red-100 text-red-700" :
+            hasCancelRequest ? "bg-purple-100 text-purple-700" :
+            order.paymt_status === "Paid" ? "bg-blue-100 text-blue-700" :
+            "bg-yellow-100 text-yellow-700"
           }`}>
-            {isFinished ? "Finished" : order.order_status}
+            {displayStatus}
           </span>
         </div>
 
@@ -237,15 +249,15 @@ export default function OrderDetailPage() {
               ) : (
                 <div>
                   <p className="text-sm text-gray-500">Not yet shipped</p>
-                  {order.order_status === "Pending" && (
+                  {order.paymt_status === "Pending" && order.order_status === "Open" && (
                     <div className="mt-3">
                       <div className="flex items-center gap-3 text-sm p-3 bg-yellow-50 rounded-lg">
                         <span>⏳</span>
-                        <span className="text-yellow-800">Awaiting seller approval</span>
+                        <span className="text-yellow-800">Awaiting payment confirmation</span>
                       </div>
                     </div>
                   )}
-                  {order.order_status === "Paid" && (
+                  {order.paymt_status === "Paid" && order.order_status === "Open" && (
                     <div className="mt-3">
                       <div className="flex items-center gap-3 text-sm p-3 bg-blue-50 rounded-lg">
                         <span>🚚</span>
@@ -253,11 +265,19 @@ export default function OrderDetailPage() {
                       </div>
                     </div>
                   )}
-                  {order.order_status === "Rejected" && (
+                  {hasCancelRequest && (
+                    <div className="mt-3">
+                      <div className="flex items-center gap-3 text-sm p-3 bg-purple-50 rounded-lg">
+                        <span>⏳</span>
+                        <span className="text-purple-800">Cancellation requested — awaiting seller response ({order.cancel_reason})</span>
+                      </div>
+                    </div>
+                  )}
+                  {order.order_status === "Cancelled" && (
                     <div className="mt-3">
                       <div className="flex items-center gap-3 text-sm p-3 bg-red-50 rounded-lg">
                         <span>❌</span>
-                        <span className="text-red-800">This order has been rejected by the seller</span>
+                        <span className="text-red-800">This order has been cancelled</span>
                       </div>
                     </div>
                   )}
@@ -276,15 +296,13 @@ export default function OrderDetailPage() {
               <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Feedback</h2>
               {feedback ? (
                 <div>
-                  <div className="flex items-center gap-1 text-yellow-500">
-                    {[1, 2, 3, 4, 5].map((rating) => (
-                      <Star
-                        key={rating}
-                        className={`w-4 h-4 ${rating <= Number(feedback.fdbck_rating ?? 0) ? "fill-yellow-400" : "fill-none text-gray-300"}`}
-                      />
-                    ))}
-                    <span className="ml-2 text-xs font-semibold text-gray-600">{feedback.fdbck_rating}/5</span>
-                  </div>
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${
+                    feedback.fdbck_type === "Positive" ? "bg-green-100 text-green-700" :
+                    feedback.fdbck_type === "Neutral" ? "bg-yellow-100 text-yellow-700" :
+                    "bg-red-100 text-red-700"
+                  }`}>
+                    {feedback.fdbck_type}
+                  </span>
                   <p className="text-sm text-gray-700 mt-2">{feedback.fdbck_comment}</p>
                   <p className="text-xs text-gray-400 mt-1">
                     {new Date(feedback.fdbck_date).toLocaleDateString()}

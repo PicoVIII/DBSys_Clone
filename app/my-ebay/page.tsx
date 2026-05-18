@@ -5,7 +5,7 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import Navbar from "../components/navbar";
 import Link from "next/link";
-import { Package, Receipt, Heart, MessageCircle, TrendingUp, X, Star } from "lucide-react";
+import { Package, Receipt, Heart, MessageCircle, TrendingUp, X } from "lucide-react";
 
 type Listing = {
   listg_id: number;
@@ -34,6 +34,8 @@ type Order = {
   shpmt_trackingno?: string;
   shpmt_deliverydate?: string | null;
   shpmt_status?: string;
+  cancel_reason?: string | null;
+  cancel_requested_at?: string | null;
 };
 
 type WatchlistItem = {
@@ -73,7 +75,7 @@ export default function MyEbayPage() {
   const [myOffers, setMyOffers] = useState<OfferItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [feedbackModal, setFeedbackModal] = useState<{ listg_id: number; seller_user_id: number } | null>(null);
-  const [feedbackRating, setFeedbackRating] = useState(5);
+  const [feedbackType, setFeedbackType] = useState("Positive");
   const [feedbackComment, setFeedbackComment] = useState("");
   const [feedbackGiven, setFeedbackGiven] = useState<Set<number>>(new Set());
   const [sales, setSales] = useState<Order[]>([]);
@@ -81,10 +83,38 @@ export default function MyEbayPage() {
   const [shipCourrier, setShipCourrier] = useState("");
   const [shipTracking, setShipTracking] = useState("");
   const [shipExpectDate, setShipExpectDate] = useState("");
+  const [cancelModal, setCancelModal] = useState<Order | null>(null);
+  const [cancelReason, setCancelReason] = useState("");
+  const [restockModal, setRestockModal] = useState<Listing | null>(null);
+  const [restockQty, setRestockQty] = useState("1");
+  const cancelReasons = [
+    "Changed my mind",
+    "Made a mistake during checkout",
+    "Found a better price",
+    "No longer needed",
+    "Other reason",
+  ];
 
+  const isPaymentPaid = (order: Order) => order.paymt_status === "Paid";
   const isOrderFinished = (order: Order) =>
-    order.order_status === "Paid" &&
-    (order.shpmt_status === "Delivered" || Boolean(order.shpmt_deliverydate));
+    order.order_status === "Completed" ||
+    order.shpmt_status === "Delivered" ||
+    Boolean(order.shpmt_deliverydate);
+  const hasCancelRequest = (order: Order) => Boolean(order.cancel_requested_at);
+  const orderBadgeClass = (order: Order) => {
+    if (hasCancelRequest(order)) return "bg-purple-50 text-purple-700";
+    if (order.order_status === "Cancelled" || order.order_status === "Returned") return "bg-red-50 text-ebay-red";
+    if (isOrderFinished(order)) return "bg-green-50 text-ebay-green";
+    if (isPaymentPaid(order)) return "bg-blue-50 text-ebay-blue";
+    return "bg-yellow-50 text-yellow-700";
+  };
+  const orderLabel = (order: Order) => {
+    if (hasCancelRequest(order)) return "Cancellation requested";
+    if (isOrderFinished(order)) return "Completed";
+    if (order.order_status === "Cancelled") return "Cancelled";
+    if (order.order_status === "Returned") return "Returned";
+    return isPaymentPaid(order) ? "Paid" : "Awaiting payment";
+  };
 
   async function refreshOrdersAndSales() {
     if (!userId) return;
@@ -267,6 +297,11 @@ export default function MyEbayPage() {
                             End listing
                           </button>
                         )}
+                        {l.listg_status?.toLowerCase() === "sold" && l.listg_quantity <= 0 && (
+                          <button onClick={() => { setRestockModal(l); setRestockQty("1"); }} className="flex-1 sm:flex-none text-sm font-bold border border-ebay-green text-ebay-green px-5 py-2.5 rounded-full hover:bg-green-50 transition-colors">
+                            Restock
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -318,14 +353,14 @@ export default function MyEbayPage() {
                       </div>
                       <div className="text-left md:text-right flex flex-col md:items-end border-t md:border-t-0 border-ebay-gray-100 pt-4 md:pt-0 mt-2 md:mt-0">
                         <p className="text-xl font-bold text-foreground">${Number(o.order_totalamount).toFixed(2)}</p>
-                        <span className={`text-xs font-bold px-3 py-1 rounded-full mt-2 inline-block ${o.order_status === "Pending" ? "bg-yellow-50 text-yellow-700" : o.order_status === "Paid" ? "bg-green-50 text-ebay-green" : "bg-red-50 text-ebay-red"}`}>
-                          {isOrderFinished(o) ? "Finished" : o.order_status}
+                        <span className={`text-xs font-bold px-3 py-1 rounded-full mt-2 inline-block ${orderBadgeClass(o)}`}>
+                          {orderLabel(o)}
                         </span>
                         <div className="flex flex-wrap gap-2 justify-start md:justify-end mt-4">
                           <Link href={`/orders/${o.order_id}`} className="text-sm font-bold border border-ebay-gray-300 text-foreground px-4 py-2 rounded-full hover:bg-ebay-gray-50 transition-colors">
                             View order
                           </Link>
-                          {isOrderFinished(o) && o.listg_id && o.seller_user_id && !feedbackGiven.has(o.listg_id) && (
+                          {isPaymentPaid(o) && o.listg_id && o.seller_user_id && !feedbackGiven.has(o.listg_id) && (
                             <button
                               onClick={() => setFeedbackModal({ listg_id: o.listg_id!, seller_user_id: o.seller_user_id! })}
                               className="text-sm font-bold border border-ebay-blue text-ebay-blue px-4 py-2 rounded-full hover:bg-ebay-blue/5 transition-colors"
@@ -333,9 +368,22 @@ export default function MyEbayPage() {
                               Leave Feedback
                             </button>
                           )}
-                          {o.order_status === "Paid" && !isOrderFinished(o) && (
+                          {o.order_status === "Open" && !o.shpmt_id && !hasCancelRequest(o) && (
+                            <button
+                              onClick={() => { setCancelModal(o); setCancelReason(""); }}
+                              className="text-sm font-bold border border-ebay-red text-ebay-red px-4 py-2 rounded-full hover:bg-red-50 transition-colors"
+                            >
+                              Request cancellation
+                            </button>
+                          )}
+                          {hasCancelRequest(o) && (
+                            <span className="text-xs font-bold text-purple-700 px-3 py-2">
+                              Cancellation requested — awaiting seller response
+                            </span>
+                          )}
+                          {isPaymentPaid(o) && !isOrderFinished(o) && !hasCancelRequest(o) && (
                             <span className="text-xs font-bold text-ebay-gray-400 px-3 py-2">
-                              Feedback unlocks after delivery
+                              You can leave feedback now. Delivery is still in progress.
                             </span>
                           )}
                         </div>
@@ -354,26 +402,28 @@ export default function MyEbayPage() {
             <div className="bg-background rounded-[24px] shadow-2xl w-full max-w-sm p-8 animate-in zoom-in-95 duration-200">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-2xl font-bold">Leave Feedback</h2>
-                <button onClick={() => { setFeedbackModal(null); setFeedbackComment(""); setFeedbackRating(5); }} className="text-ebay-gray-400 hover:text-foreground">
+                <button onClick={() => { setFeedbackModal(null); setFeedbackComment(""); setFeedbackType("Positive"); }} className="text-ebay-gray-400 hover:text-foreground">
                   <X className="w-6 h-6" />
                 </button>
               </div>
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm font-bold text-foreground block mb-2">Rating</label>
-                  <div className="flex items-center gap-2">
-                    {[1, 2, 3, 4, 5].map((rating) => (
+                  <label className="text-sm font-bold text-foreground block mb-2">Feedback</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {["Positive", "Neutral", "Negative"].map((type) => (
                       <button
-                        key={rating}
+                        key={type}
                         type="button"
-                        onClick={() => setFeedbackRating(rating)}
-                        aria-label={`${rating} star${rating === 1 ? "" : "s"}`}
-                        className="rounded-full p-1 text-yellow-500 hover:bg-yellow-50 transition-colors"
+                        onClick={() => setFeedbackType(type)}
+                        className={`text-sm font-bold rounded-xl border px-3 py-3 transition-colors ${
+                          feedbackType === type
+                            ? "border-ebay-blue bg-ebay-blue/10 text-ebay-blue"
+                            : "border-ebay-gray-300 text-foreground hover:bg-ebay-gray-50"
+                        }`}
                       >
-                        <Star className={`w-8 h-8 ${rating <= feedbackRating ? "fill-yellow-400" : "fill-none text-ebay-gray-300"}`} />
+                        {type}
                       </button>
                     ))}
-                    <span className="ml-2 text-sm font-bold text-foreground">{feedbackRating}/5</span>
                   </div>
                 </div>
                 <div>
@@ -391,18 +441,77 @@ export default function MyEbayPage() {
                         buyer_user_id: Number(userId),
                         seller_user_id: feedbackModal.seller_user_id,
                         comment: feedbackComment,
-                        rating: feedbackRating,
+                        type: feedbackType,
                       }),
                     });
                     setFeedbackGiven((prev) => new Set(prev).add(feedbackModal.listg_id));
                     setFeedbackModal(null);
                     setFeedbackComment("");
-                    setFeedbackRating(5);
+                    setFeedbackType("Positive");
                   }} disabled={!feedbackComment} className="w-full bg-ebay-blue hover:bg-ebay-blue-hover text-white font-bold py-4 rounded-full transition-colors disabled:opacity-50 evo-button">
                     Submit Feedback
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cancellation Modal */}
+        {cancelModal && (
+          <div className="fixed inset-0 bg-foreground/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-background rounded-[24px] shadow-2xl w-full max-w-sm p-8 animate-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold">Cancel Order</h2>
+                  <p className="text-sm text-ebay-gray-400 mt-1">Order #{cancelModal.order_id}</p>
+                </div>
+                <button onClick={() => { setCancelModal(null); setCancelReason(""); }} className="text-ebay-gray-400 hover:text-foreground">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <p className="text-sm text-ebay-gray-400 mb-4">Why do you want to cancel this order?</p>
+              <div className="space-y-2 mb-6">
+                {cancelReasons.map((reason) => (
+                  <button
+                    key={reason}
+                    type="button"
+                    onClick={() => setCancelReason(reason)}
+                    className={`w-full text-left text-sm font-bold rounded-xl border px-4 py-3 transition-colors ${
+                      cancelReason === reason
+                        ? "border-ebay-blue bg-ebay-blue/10 text-ebay-blue"
+                        : "border-ebay-gray-300 text-foreground hover:bg-ebay-gray-50"
+                    }`}
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={async () => {
+                  if (!cancelReason) return;
+                  await fetch("/api/orders", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      order_id: cancelModal.order_id,
+                      user_id: Number(userId),
+                      action: "cancel-request",
+                      cancel_reason: cancelReason,
+                    }),
+                  });
+                  setCancelModal(null);
+                  setCancelReason("");
+                  await refreshOrdersAndSales();
+                }}
+                disabled={!cancelReason}
+                className="w-full bg-ebay-red hover:bg-red-600 text-white font-bold py-4 rounded-full transition-colors disabled:opacity-50 evo-button"
+              >
+                Request cancellation
+              </button>
+              <p className="text-xs text-ebay-gray-400 text-center mt-4">
+                The seller will review your request and respond.
+              </p>
             </div>
           </div>
         )}
@@ -451,10 +560,10 @@ export default function MyEbayPage() {
                       </div>
                       <div className="text-left md:text-right flex flex-col md:items-end border-t md:border-t-0 border-ebay-gray-100 pt-4 md:pt-0 mt-2 md:mt-0">
                         <p className="text-xl font-bold text-foreground">${Number(s.order_totalamount).toFixed(2)}</p>
-                        <span className={`text-xs font-bold px-3 py-1 rounded-full mt-2 inline-block ${s.order_status === "Pending" ? "bg-yellow-50 text-yellow-700" : s.order_status === "Paid" ? "bg-green-50 text-ebay-green" : "bg-red-50 text-ebay-red"}`}>
-                          {isOrderFinished(s) ? "Finished" : s.order_status}
+                        <span className={`text-xs font-bold px-3 py-1 rounded-full mt-2 inline-block ${orderBadgeClass(s)}`}>
+                          {orderLabel(s)}
                         </span>
-                        {s.order_status === "Pending" && (
+                        {s.paymt_status === "Pending" && s.order_status === "Open" && (
                           <div className="flex gap-2 mt-4">
                             <button onClick={async () => {
                               await fetch("/api/orders", {
@@ -462,10 +571,9 @@ export default function MyEbayPage() {
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({ order_id: s.order_id, seller_user_id: Number(userId), action: "approve" }),
                               });
-                              const [s2] = await Promise.all([fetch(`/api/orders?seller_id=${userId}`).then((r) => r.json())]);
-                              setSales(s2.data ?? []);
+                              await refreshOrdersAndSales();
                             }} className="flex-1 text-sm font-bold bg-ebay-green text-white px-4 py-2 rounded-full hover:bg-green-600 transition-colors">
-                              Approve
+                              Mark paid
                             </button>
                             <button onClick={async () => {
                               await fetch("/api/orders", {
@@ -473,14 +581,41 @@ export default function MyEbayPage() {
                                 headers: { "Content-Type": "application/json" },
                                 body: JSON.stringify({ order_id: s.order_id, seller_user_id: Number(userId), action: "reject" }),
                               });
-                              const [s2] = await Promise.all([fetch(`/api/orders?seller_id=${userId}`).then((r) => r.json())]);
-                              setSales(s2.data ?? []);
+                              await refreshOrdersAndSales();
                             }} className="flex-1 text-sm font-bold border border-ebay-red text-ebay-red px-4 py-2 rounded-full hover:bg-red-50 transition-colors">
                               Reject
                             </button>
                           </div>
                         )}
-                        {s.order_status === "Paid" && (
+                        {hasCancelRequest(s) && (
+                          <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded-xl">
+                            <p className="text-xs font-bold text-purple-700 uppercase tracking-wide mb-1">Cancellation requested</p>
+                            <p className="text-sm text-purple-600 mb-3">Reason: {s.cancel_reason}</p>
+                            <div className="flex gap-2">
+                              <button onClick={async () => {
+                                await fetch("/api/orders", {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ order_id: s.order_id, seller_user_id: Number(userId), action: "cancel-approve" }),
+                                });
+                                await refreshOrdersAndSales();
+                              }} className="flex-1 text-sm font-bold bg-ebay-green text-white px-4 py-2 rounded-full hover:bg-green-600 transition-colors">
+                                Approve
+                              </button>
+                              <button onClick={async () => {
+                                await fetch("/api/orders", {
+                                  method: "PATCH",
+                                  headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ order_id: s.order_id, seller_user_id: Number(userId), action: "cancel-decline" }),
+                                });
+                                await refreshOrdersAndSales();
+                              }} className="flex-1 text-sm font-bold border border-ebay-red text-ebay-red px-4 py-2 rounded-full hover:bg-red-50 transition-colors">
+                                Decline
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {isPaymentPaid(s) && s.order_status !== "Cancelled" && (
                           <div className="flex flex-wrap gap-2 justify-start md:justify-end mt-4">
                             {!s.shpmt_id ? (
                               <button onClick={() => { setShipModal(s); setShipCourrier(""); setShipTracking(""); setShipExpectDate(""); }} className="text-sm font-bold border border-ebay-blue text-ebay-blue px-4 py-2 rounded-full hover:bg-ebay-blue/5 transition-colors">
@@ -517,6 +652,52 @@ export default function MyEbayPage() {
                 ))}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Restock Modal */}
+        {restockModal && (
+          <div className="fixed inset-0 bg-foreground/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-background rounded-[24px] shadow-2xl w-full max-w-sm p-8 animate-in zoom-in-95 duration-200">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-2xl font-bold">Restock Item</h2>
+                  <p className="text-sm text-ebay-gray-400 mt-1">{restockModal.listg_title}</p>
+                </div>
+                <button onClick={() => setRestockModal(null)} className="text-ebay-gray-400 hover:text-foreground">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+              <div className="mb-6">
+                <label className="text-sm font-bold text-foreground block mb-2">New quantity</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={restockQty}
+                  onChange={(e) => setRestockQty(e.target.value)}
+                  className="w-full border border-ebay-gray-300 rounded-xl px-4 py-3 text-base font-bold outline-none focus:border-ebay-blue bg-background"
+                />
+                <p className="text-xs text-ebay-gray-400 mt-2">The listing will be reactivated and visible in search.</p>
+              </div>
+              <button
+                onClick={async () => {
+                  const qty = parseInt(restockQty, 10);
+                  if (!qty || qty <= 0) return;
+                  await fetch(`/api/listings/${restockModal.listg_id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ quantity: qty }),
+                  });
+                  setRestockModal(null);
+                  const [l] = await Promise.all([fetch(`/api/listings/user/${userId}`).then((r) => r.json())]);
+                  setMyListings(l.data ?? []);
+                }}
+                disabled={!parseInt(restockQty, 10) || parseInt(restockQty, 10) <= 0}
+                className="w-full bg-ebay-green hover:bg-green-600 text-white font-bold py-4 rounded-full transition-colors disabled:opacity-50 evo-button"
+              >
+                Restock & Reactivate
+              </button>
+            </div>
           </div>
         )}
 

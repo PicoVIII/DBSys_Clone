@@ -17,7 +17,10 @@ export async function GET(req: NextRequest) {
       "SELECT COUNT(*) AS total, SUM(listg_status = 'active') AS active, SUM(listg_status = 'sold') AS sold FROM Listing"
     );
     const [[orders]] = await pool.query<RowDataPacket[]>(
-      "SELECT COUNT(*) AS total, COALESCE(SUM(order_totalamount), 0) AS revenue FROM OrderList WHERE order_status = 'Paid'"
+      `SELECT COUNT(*) AS total, COALESCE(SUM(o.order_totalamount), 0) AS revenue
+       FROM OrderList o
+       JOIN Payment p ON p.order_id = o.order_id
+       WHERE p.paymt_status = 'Paid'`
     );
     const [[reports]] = await pool.query<RowDataPacket[]>(
       "SELECT COUNT(*) AS total, SUM(rprt_status = 'Pending') AS pending FROM Report"

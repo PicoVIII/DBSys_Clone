@@ -11,19 +11,21 @@ type FeedbackBody = {
   type?: string;
 };
 
-function legacyTypeToRating(type: unknown) {
+function normalizeFeedbackType(type: unknown, rating?: number) {
   const normalized = String(type ?? "").toLowerCase();
-  if (normalized === "positive") return 5;
-  if (normalized === "neutral") return 3;
-  if (normalized === "negative") return 1;
-  const parsed = Number(type);
-  return parsed >= 1 && parsed <= 5 ? parsed : null;
+  if (normalized === "positive") return "Positive";
+  if (normalized === "neutral") return "Neutral";
+  if (normalized === "negative") return "Negative";
+  if (rating && rating >= 4) return "Positive";
+  if (rating === 3) return "Neutral";
+  if (rating && rating >= 1 && rating <= 2) return "Negative";
+  return null;
 }
 
-function ratingToLegacyType(rating: number) {
-  if (rating >= 4) return "Positive";
-  if (rating === 3) return "Neutral";
-  return "Negative";
+function feedbackTypeToRating(type: string) {
+  if (type === "Positive") return 5;
+  if (type === "Neutral") return 3;
+  return 1;
 }
 
 async function feedbackHasRatingColumn() {
@@ -38,25 +40,6 @@ export async function GET(req: Request) {
     const buyerId = searchParams.get("buyer_id");
     const sellerId = searchParams.get("seller_id");
     const listingId = searchParams.get("listg_id");
-    const hasRatingColumn = await feedbackHasRatingColumn();
-    const ratingSql = hasRatingColumn
-      ? `COALESCE(f.fdbck_rating,
-          CASE
-            WHEN f.fdbck_type = 'Positive' THEN 5
-            WHEN f.fdbck_type = 'Neutral' THEN 3
-            WHEN f.fdbck_type = 'Negative' THEN 1
-            WHEN f.fdbck_type REGEXP '^[1-5]$' THEN CAST(f.fdbck_type AS UNSIGNED)
-            ELSE NULL
-          END
-        ) AS fdbck_rating,`
-      : `CASE
-          WHEN f.fdbck_type = 'Positive' THEN 5
-          WHEN f.fdbck_type = 'Neutral' THEN 3
-          WHEN f.fdbck_type = 'Negative' THEN 1
-          WHEN f.fdbck_type REGEXP '^[1-5]$' THEN CAST(f.fdbck_type AS UNSIGNED)
-          ELSE NULL
-        END AS fdbck_rating,`;
-
     let sql = `SELECT
       f.fdbck_id,
       f.listg_id,
@@ -65,7 +48,7 @@ export async function GET(req: Request) {
       f.fdbck_comment,
       f.fdbck_type,
       f.fdbck_date,
-      ${ratingSql} l.listg_title,
+      l.listg_title,
       b.fname AS buyer_fname, b.lname AS buyer_lname,
       s.fname AS seller_fname, s.lname AS seller_lname
       FROM Feedback f
@@ -109,11 +92,11 @@ export async function POST(req: Request) {
   try {
     const { listg_id, buyer_user_id, seller_user_id, comment, rating, type } =
       (await req.json()) as FeedbackBody;
-    const numericRating = Number(rating ?? legacyTypeToRating(type));
+    const feedbackType = normalizeFeedbackType(type, rating);
 
-    if (!listg_id || !buyer_user_id || !seller_user_id || !comment || !Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
+    if (!listg_id || !buyer_user_id || !seller_user_id || !comment || !feedbackType) {
       return NextResponse.json(
-        { error: "listg_id, buyer_user_id, seller_user_id, comment, and a 1-5 rating are required" },
+        { error: "listg_id, buyer_user_id, seller_user_id, comment, and Positive/Neutral/Negative type are required" },
         { status: 400 }
       );
     }
@@ -123,22 +106,19 @@ export async function POST(req: Request) {
        FROM OrderList o
        JOIN OrderItem oi ON oi.order_id = o.order_id
        JOIN Listing l ON l.listg_id = oi.listg_id
-       JOIN Shipment sh ON sh.order_id = o.order_id
+       JOIN Payment p ON p.order_id = o.order_id
        WHERE o.user_id = ?
          AND oi.listg_id = ?
          AND l.user_id = ?
-         AND o.order_status = 'Paid'
-         AND (
-           sh.shpmt_status = 'Delivered'
-           OR sh.shpmt_deliverydate IS NOT NULL
-         )
+         AND p.paymt_status = 'Paid'
+         AND o.order_status <> 'Cancelled'
        LIMIT 1`,
       [buyer_user_id, listg_id, seller_user_id]
     );
 
     if (paidOrders.length === 0) {
       return NextResponse.json(
-        { error: "Feedback can only be left after the order is paid and delivered" },
+        { error: "Feedback can only be left after the order is paid" },
         { status: 400 }
       );
     }
@@ -158,7 +138,7 @@ export async function POST(req: Request) {
     }
 
     const date = new Date().toISOString().split("T")[0];
-    const legacyType = ratingToLegacyType(numericRating);
+    const numericRating = feedbackTypeToRating(feedbackType);
     const hasRatingColumn = await feedbackHasRatingColumn();
 
     const [result] = hasRatingColumn
@@ -166,13 +146,13 @@ export async function POST(req: Request) {
           `INSERT INTO Feedback
           (listg_id, buyer_user_id, seller_user_id, fdbck_comment, fdbck_type, fdbck_rating, fdbck_date)
           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-          [listg_id, buyer_user_id, seller_user_id, comment, legacyType, numericRating, date]
+          [listg_id, buyer_user_id, seller_user_id, comment, feedbackType, numericRating, date]
         )
       : await pool.execute<ResultSetHeader>(
           `INSERT INTO Feedback
           (listg_id, buyer_user_id, seller_user_id, fdbck_comment, fdbck_type, fdbck_date)
           VALUES (?, ?, ?, ?, ?, ?)`,
-          [listg_id, buyer_user_id, seller_user_id, comment, String(numericRating), date]
+          [listg_id, buyer_user_id, seller_user_id, comment, feedbackType, date]
         );
 
     return NextResponse.json({ message: "Feedback added", id: result.insertId });

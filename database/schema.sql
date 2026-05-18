@@ -125,7 +125,9 @@ CREATE TABLE IF NOT EXISTS OrderList (
   order_date DATE NOT NULL,
   order_status VARCHAR(20) NOT NULL,
   order_totalamount DECIMAL(10, 2) NOT NULL,
-  CHECK (order_status IN ('Pending', 'Paid', 'Rejected')),
+  cancel_reason VARCHAR(100) DEFAULT NULL,
+  cancel_requested_at DATE DEFAULT NULL,
+  CHECK (order_status IN ('Open', 'Completed', 'Cancelled', 'Returned')),
   FOREIGN KEY (user_id) REFERENCES `User`(user_id),
   FOREIGN KEY (baddr_id) REFERENCES BuyerAddress(baddr_id)
 );
@@ -147,7 +149,7 @@ CREATE TABLE IF NOT EXISTS Payment (
   paymt_amount DECIMAL(10, 2) NOT NULL,
   paymt_date DATE NOT NULL,
   paymt_status VARCHAR(20) NOT NULL,
-  CHECK (paymt_status IN ('Pending', 'Completed', 'Rejected')),
+  CHECK (paymt_status IN ('Pending', 'Paid', 'Refunded', 'Failed')),
   FOREIGN KEY (order_id) REFERENCES OrderList(order_id)
 );
 
@@ -180,11 +182,9 @@ CREATE TABLE IF NOT EXISTS Feedback (
   seller_user_id INT NOT NULL,
   fdbck_comment TEXT NOT NULL,
   fdbck_type VARCHAR(20) NOT NULL,
-  fdbck_rating TINYINT NOT NULL,
   fdbck_date DATE NOT NULL,
   UNIQUE KEY unique_feedback_per_transaction (listg_id, buyer_user_id, seller_user_id),
   CHECK (fdbck_type IN ('Positive', 'Neutral', 'Negative')),
-  CHECK (fdbck_rating BETWEEN 1 AND 5),
   FOREIGN KEY (listg_id) REFERENCES Listing(listg_id),
   FOREIGN KEY (buyer_user_id) REFERENCES `User`(user_id),
   FOREIGN KEY (seller_user_id) REFERENCES `User`(user_id)

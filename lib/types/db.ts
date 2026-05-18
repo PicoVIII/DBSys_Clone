@@ -100,6 +100,8 @@ export interface OrderList {
   order_date: string;
   order_status: string;
   order_totalamount: number;
+  cancel_reason: string | null;
+  cancel_requested_at: string | null;
 }
 
 export interface OrderItem {
@@ -143,7 +145,6 @@ export interface Feedback {
   seller_user_id: number;
   fdbck_comment: string;
   fdbck_type: string;
-  fdbck_rating: number;
   fdbck_date: string;
 }
 

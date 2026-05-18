@@ -89,6 +89,7 @@ export default function ListingDetailPage() {
   const [reportDesc, setReportDesc] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [isWatchlisted, setIsWatchlisted] = useState(false);
 
   useEffect(() => {
     fetch(`/api/listings/${id}`)
@@ -123,6 +124,16 @@ export default function ListingDetailPage() {
   }, [id]);
 
   useEffect(() => {
+    if (!userId || !id) return;
+    fetch(`/api/watchlist?user_id=${userId}`)
+      .then((r) => r.json())
+      .then((d) => {
+        setIsWatchlisted((d.data ?? []).some((w: { listg_id: number }) => Number(w.listg_id) === Number(id)));
+      })
+      .catch(() => {});
+  }, [userId, id]);
+
+  useEffect(() => {
     if (!userId || !showCheckout) return;
     fetch(`/api/addresses?user_id=${userId}`)
       .then((r) => r.json())
@@ -145,15 +156,21 @@ export default function ListingDetailPage() {
     setMsg({ text: res.ok ? "Added to cart!" : data.error, ok: res.ok });
   }
 
-  async function addToWatchlist() {
+  async function toggleWatchlist() {
     if (!userId) { router.push("/login"); return; }
-    const res = await fetch("/api/watchlist", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user_id: Number(userId), listg_id: listing!.listg_id }),
-    });
-    const data = await res.json();
-    setMsg({ text: res.ok ? data.message : data.error, ok: res.ok });
+    if (isWatchlisted) {
+      const res = await fetch(`/api/watchlist?user_id=${userId}&listg_id=${listing!.listg_id}`, {
+        method: "DELETE",
+      });
+      if (res.ok) setIsWatchlisted(false);
+    } else {
+      const res = await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: Number(userId), listg_id: listing!.listg_id }),
+      });
+      if (res.ok) setIsWatchlisted(true);
+    }
   }
 
   async function placeBid() {
@@ -262,6 +279,7 @@ export default function ListingDetailPage() {
     : (listing.listg_fixedprice ?? 0);
   const isActive = listing.listg_status?.toLowerCase() === "active";
   const isSeller = userId && Number(userId) === listing.user_id;
+  const isOutOfStock = listing.listg_status?.toLowerCase() === "sold" || listing.listg_quantity <= 0;
 
   return (
     <div className="bg-background min-h-screen">
@@ -358,14 +376,19 @@ export default function ListingDetailPage() {
             </div>
 
             {/* Status badge */}
-            {!isActive && (
+            {isOutOfStock && (
+              <div className="mb-6 inline-flex bg-[#fef2f3] border border-ebay-red/20 text-ebay-red text-sm font-bold px-4 py-2 rounded-full shadow-sm">
+                Out of Stock — This item is currently unavailable
+              </div>
+            )}
+            {!isActive && !isOutOfStock && (
               <div className="mb-6 inline-flex bg-[#fef2f3] border border-ebay-red/20 text-ebay-red text-sm font-bold px-4 py-2 rounded-full shadow-sm">
                 This listing is {listing.listg_status}
               </div>
             )}
 
             {/* Actions */}
-            {isActive && !isSeller && (
+            {!isOutOfStock && (!isSeller || isActive) && (
               <div className="space-y-4 max-w-[400px]">
                 {msg && (
                   <div className={`text-sm p-4 rounded-xl font-medium shadow-sm border ${msg.ok ? "bg-green-50 text-ebay-green border-green-200" : "bg-[#fef2f3] text-ebay-red border-ebay-red/20"}`}>
@@ -373,7 +396,7 @@ export default function ListingDetailPage() {
                   </div>
                 )}
 
-                {isAuction && (
+                {isActive && !isSeller && isAuction && (
                   <div className="bg-background border border-ebay-gray-200 rounded-[24px] p-5 shadow-soft">
                     <div className="flex gap-3 mb-4">
                       <div className="relative flex-1">
@@ -400,7 +423,7 @@ export default function ListingDetailPage() {
                   </div>
                 )}
 
-                {isFixed && (
+                {isActive && !isSeller && isFixed && (
                   <div className="space-y-3">
                     <div className="flex items-center gap-3 mb-4">
                       <label className="text-sm font-bold text-foreground">Quantity:</label>
@@ -431,16 +454,23 @@ export default function ListingDetailPage() {
                   </div>
                 )}
 
-                {listing.listg_bestoffer?.toLowerCase() === "yes" && (
+                {isActive && !isSeller && listing.listg_bestoffer?.toLowerCase() === "yes" && (
                   <BestOfferButton userId={Number(userId)} listgId={listing.listg_id} setMsg={setMsg} />
                 )}
 
-                <button
-                  onClick={addToWatchlist}
-                  className="w-full bg-transparent border border-ebay-blue text-ebay-blue font-bold py-4 rounded-full text-base transition-colors hover:bg-ebay-blue/5 flex items-center justify-center gap-2 evo-button mt-4"
-                >
-                  <Heart className="w-5 h-5" /> Add to Watchlist
-                </button>
+                {!isSeller && (
+                  <button
+                    onClick={toggleWatchlist}
+                    className={`w-full font-bold py-4 rounded-full text-base transition-colors flex items-center justify-center gap-2 evo-button ${
+                      isWatchlisted
+                        ? "bg-red-50 border border-ebay-red text-ebay-red hover:bg-red-100"
+                        : "bg-transparent border border-ebay-blue text-ebay-blue hover:bg-ebay-blue/5"
+                    }`}
+                  >
+                    <Heart className={`w-5 h-5 ${isWatchlisted ? "fill-ebay-red" : ""}`} />
+                    {isWatchlisted ? "Watching" : "Add to Watchlist"}
+                  </button>
+                )}
               </div>
             )}
 
@@ -684,7 +714,7 @@ export default function ListingDetailPage() {
 }
 
 function SellerCard({ sellerId, fname, lname, currentUserId, listgId }: { sellerId: number; fname: string; lname: string; currentUserId: number | null; listgId: number }) {
-  const [feedback, setFeedback] = useState<{ total: number; averageRating: number; score: number } | null>(null);
+  const [feedback, setFeedback] = useState<{ total: number; score: number } | null>(null);
 
   useEffect(() => {
     fetch(`/api/feedback/seller/${sellerId}`)
@@ -720,11 +750,11 @@ function SellerCard({ sellerId, fname, lname, currentUserId, listgId }: { seller
       {feedback && (
         <div className="bg-ebay-gray-50/50 rounded-xl p-4 flex items-center justify-between border border-ebay-gray-100">
           <div>
-            <p className="text-xs font-bold text-ebay-gray-400 uppercase tracking-wide mb-0.5">Seller Rating</p>
-            <p className="text-2xl font-bold text-foreground">{feedback.averageRating.toFixed(1)}/5</p>
+            <p className="text-xs font-bold text-ebay-gray-400 uppercase tracking-wide mb-0.5">Positive Feedback</p>
+            <p className="text-2xl font-bold text-foreground">{feedback.score}%</p>
           </div>
           <div className="text-right">
-            <p className="text-xs font-bold text-ebay-gray-400 uppercase tracking-wide mb-0.5">Reviews</p>
+            <p className="text-xs font-bold text-ebay-gray-400 uppercase tracking-wide mb-0.5">Ratings</p>
             <p className="text-xl font-bold text-foreground">{feedback.total}</p>
           </div>
         </div>

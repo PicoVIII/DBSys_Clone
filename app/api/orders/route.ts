@@ -12,8 +12,10 @@ type OrderBody = {
 
 type OrderPatchBody = {
   order_id?: number;
+  user_id?: number;
   seller_user_id?: number;
-  action?: "approve" | "reject";
+  action?: "approve" | "reject" | "cancel-request" | "cancel-approve" | "cancel-decline";
+  cancel_reason?: string;
 };
 
 // Gets all orders with payment details, optionally filtered by user_id.
@@ -173,7 +175,7 @@ export async function POST(req: Request) {
     const [orderRes] = await conn.execute<ResultSetHeader>(
       `INSERT INTO OrderList 
       (user_id, baddr_id, order_date, order_status, order_totalamount)
-      VALUES (?, ?, ?, 'Pending', ?)`,
+      VALUES (?, ?, ?, 'Open', ?)`,
       [user_id, baddr_id, date, total]
     );
 
@@ -222,28 +224,29 @@ export async function POST(req: Request) {
   }
 }
 
-// Updates order status (seller approves or rejects an order).
+// Updates order status (seller approves/rejects, buyer cancels, seller acts on cancellation).
 export async function PATCH(req: Request) {
   const conn = await pool.getConnection();
 
   try {
     const body: OrderPatchBody = await req.json();
-    const { order_id, seller_user_id, action } = body;
+    const { order_id, user_id, seller_user_id, action, cancel_reason } = body;
 
-    if (!order_id || !seller_user_id || !action) {
+    if (!order_id || !action) {
       conn.release();
 
       return NextResponse.json(
-        { error: "order_id, seller_user_id, and action are required" },
+        { error: "order_id and action are required" },
         { status: 400 }
       );
     }
 
-    if (action !== "approve" && action !== "reject") {
+    const validActions = ["approve", "reject", "cancel-request", "cancel-approve", "cancel-decline"];
+    if (!validActions.includes(action)) {
       conn.release();
 
       return NextResponse.json(
-        { error: "action must be 'approve' or 'reject'" },
+        { error: `action must be one of: ${validActions.join(", ")}` },
         { status: 400 }
       );
     }
@@ -251,7 +254,7 @@ export async function PATCH(req: Request) {
     await conn.beginTransaction();
 
     const [orders] = await conn.query<RowDataPacket[]>(
-      `SELECT o.*, oi.listg_id
+      `SELECT o.*, oi.listg_id, oi.ordit_quantity
        FROM OrderList o
        LEFT JOIN OrderItem oi ON oi.order_id = o.order_id
        WHERE o.order_id = ? LIMIT 1 FOR UPDATE`,
@@ -267,55 +270,162 @@ export async function PATCH(req: Request) {
 
     const order = orders[0];
 
-    const [listings] = await conn.query<RowDataPacket[]>(
-      `SELECT user_id FROM Listing WHERE listg_id = ? LIMIT 1`,
-      [order.listg_id]
-    );
+    if (action === "approve" || action === "reject") {
+      if (!seller_user_id) {
+        conn.release();
+        return NextResponse.json({ error: "seller_user_id is required" }, { status: 400 });
+      }
 
-    if (listings.length === 0 || Number(listings[0].user_id) !== seller_user_id) {
-      await conn.rollback();
+      const [listings] = await conn.query<RowDataPacket[]>(
+        `SELECT user_id FROM Listing WHERE listg_id = ? LIMIT 1`,
+        [order.listg_id]
+      );
+
+      if (listings.length === 0 || Number(listings[0].user_id) !== seller_user_id) {
+        await conn.rollback();
+        conn.release();
+
+        return NextResponse.json(
+          { error: "Only the seller can approve or reject this order" },
+          { status: 403 }
+        );
+      }
+
+      if (action === "approve") {
+        await conn.execute(
+          `UPDATE OrderList SET order_status = 'Open', cancel_reason = NULL, cancel_requested_at = NULL WHERE order_id = ?`,
+          [order_id]
+        );
+
+        await conn.execute(
+          `UPDATE Payment SET paymt_status = 'Paid' WHERE order_id = ?`,
+          [order_id]
+        );
+      } else {
+        await conn.execute(
+          `UPDATE OrderList SET order_status = 'Cancelled', cancel_reason = NULL, cancel_requested_at = NULL WHERE order_id = ?`,
+          [order_id]
+        );
+
+        await conn.execute(
+          `UPDATE Payment SET paymt_status = 'Failed' WHERE order_id = ?`,
+          [order_id]
+        );
+
+        await conn.execute(
+          `UPDATE Listing
+           SET listg_quantity = listg_quantity + ?,
+               listg_status = 'Active'
+           WHERE listg_id = ?`,
+          [Number(order.ordit_quantity), order.listg_id]
+        );
+      }
+
+      await conn.commit();
       conn.release();
 
-      return NextResponse.json(
-        { error: "Only the seller can approve or reject this order" },
-        { status: 403 }
-      );
+      return NextResponse.json({ message: `Order ${action}d`, order_id });
     }
 
-    if (action === "approve") {
+    if (action === "cancel-request") {
+      if (!user_id) {
+        conn.release();
+        return NextResponse.json({ error: "user_id is required" }, { status: 400 });
+      }
+
+      if (Number(order.user_id) !== user_id) {
+        await conn.rollback();
+        conn.release();
+        return NextResponse.json({ error: "Only the buyer can request cancellation" }, { status: 403 });
+      }
+
+      if (order.order_status !== "Open") {
+        await conn.rollback();
+        conn.release();
+        return NextResponse.json({ error: "Only open orders can be cancelled" }, { status: 400 });
+      }
+
+      if (order.cancel_requested_at) {
+        await conn.rollback();
+        conn.release();
+        return NextResponse.json({ error: "Cancellation already requested for this order" }, { status: 400 });
+      }
+
+      const date = new Date().toISOString().split("T")[0];
       await conn.execute(
-        `UPDATE OrderList SET order_status = 'Paid' WHERE order_id = ?`,
-        [order_id]
+        `UPDATE OrderList SET cancel_reason = ?, cancel_requested_at = ? WHERE order_id = ?`,
+        [cancel_reason || "Other", date, order_id]
       );
 
-      await conn.execute(
-        `UPDATE Payment SET paymt_status = 'Completed' WHERE order_id = ?`,
-        [order_id]
-      );
-    } else {
-      await conn.execute(
-        `UPDATE OrderList SET order_status = 'Rejected' WHERE order_id = ?`,
-        [order_id]
-      );
+      await conn.commit();
+      conn.release();
 
-      await conn.execute(
-        `UPDATE Payment SET paymt_status = 'Rejected' WHERE order_id = ?`,
-        [order_id]
-      );
-
-      await conn.execute(
-        `UPDATE Listing
-         SET listg_quantity = listg_quantity + ?,
-             listg_status = 'Active'
-         WHERE listg_id = ?`,
-        [Number(order.ordit_quantity), order.listg_id]
-      );
+      return NextResponse.json({ message: "Cancellation requested", order_id });
     }
 
-    await conn.commit();
+    if (action === "cancel-approve" || action === "cancel-decline") {
+      if (!seller_user_id) {
+        conn.release();
+        return NextResponse.json({ error: "seller_user_id is required" }, { status: 400 });
+      }
+
+      const [listings] = await conn.query<RowDataPacket[]>(
+        `SELECT user_id FROM Listing WHERE listg_id = ? LIMIT 1`,
+        [order.listg_id]
+      );
+
+      if (listings.length === 0 || Number(listings[0].user_id) !== seller_user_id) {
+        await conn.rollback();
+        conn.release();
+
+        return NextResponse.json(
+          { error: "Only the seller can respond to cancellation requests" },
+          { status: 403 }
+        );
+      }
+
+      if (!order.cancel_requested_at) {
+        await conn.rollback();
+        conn.release();
+        return NextResponse.json({ error: "No pending cancellation request" }, { status: 400 });
+      }
+
+      if (action === "cancel-approve") {
+        await conn.execute(
+          `UPDATE OrderList SET order_status = 'Cancelled', order_totalamount = 0 WHERE order_id = ?`,
+          [order_id]
+        );
+
+        await conn.execute(
+          `UPDATE Payment SET paymt_status = 'Refunded' WHERE order_id = ?`,
+          [order_id]
+        );
+
+        await conn.execute(
+          `UPDATE Listing
+           SET listg_quantity = listg_quantity + ?,
+               listg_status = 'Active'
+           WHERE listg_id = ?`,
+          [Number(order.ordit_quantity), order.listg_id]
+        );
+      } else {
+        await conn.execute(
+          `UPDATE OrderList SET cancel_reason = NULL, cancel_requested_at = NULL WHERE order_id = ?`,
+          [order_id]
+        );
+      }
+
+      await conn.commit();
+      conn.release();
+
+      const msg = action === "cancel-approve" ? "Cancellation approved, order cancelled" : "Cancellation declined";
+      return NextResponse.json({ message: msg, order_id });
+    }
+
+    await conn.rollback();
     conn.release();
 
-    return NextResponse.json({ message: `Order ${action}d`, order_id });
+    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err: unknown) {
     await conn.rollback();
     conn.release();

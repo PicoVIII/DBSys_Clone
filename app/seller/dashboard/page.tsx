@@ -22,6 +22,7 @@ type Sale = {
   order_totalamount: number;
   order_date: string;
   order_status: string;
+  paymt_status?: string;
   listg_title: string;
   listg_id: number;
   ordit_quantity: number;
@@ -71,7 +72,8 @@ export default function SellerDashboard() {
 
   const activeListings = listings.filter((l) => l.listg_status?.toLowerCase() === "active");
   const soldListings = listings.filter((l) => l.listg_status?.toLowerCase() === "sold");
-  const totalRevenue = sales.reduce((sum, s) => sum + Number(s.order_totalamount), 0);
+  const paidSales = sales.filter((s) => s.paymt_status === "Paid");
+  const totalRevenue = paidSales.reduce((sum, s) => sum + Number(s.order_totalamount), 0);
   const pendingOffers = offers.filter((o) => o.bstof_status === "Pending");
 
   if (loading) {

@@ -37,6 +37,11 @@ export async function GET(req: Request) {
     const where: string[] = [];
     const params: (string | number)[] = [];
 
+    const hasExplicitStatus = searchParams.has("status");
+    if (!hasExplicitStatus && !seller) {
+      where.push("LOWER(l.listg_status) = 'active'");
+    }
+
     if (q) {
       where.push("(l.listg_title LIKE ? OR p.prdct_name LIKE ? OR p.prdct_desc LIKE ?)");
       params.push(`%${q}%`, `%${q}%`, `%${q}%`);

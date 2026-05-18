@@ -81,8 +81,8 @@ export default function ListingCard({ listing }: { listing: Listing }) {
         </div>
 
         {listing.listg_status?.toLowerCase() !== "active" && (
-          <span className="absolute top-2 left-2 text-[10px] font-bold uppercase bg-ebay-red text-white px-2 py-1 rounded-full shadow-sm">
-            {listing.listg_status}
+          <span className="absolute top-2 left-2 text-[10px] font-bold uppercase bg-ebay-gray-300 text-white px-2 py-1 rounded-full shadow-sm">
+            {listing.listg_status?.toLowerCase() === "sold" ? "Out of Stock" : listing.listg_status}
           </span>
         )}
       </div>

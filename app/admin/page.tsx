@@ -475,8 +475,13 @@ export default function AdminPage() {
                         <td className="px-4 py-3 font-medium text-gray-800">${Number(o.order_totalamount).toFixed(2)}</td>
                         <td className="px-4 py-3 text-gray-600">{o.paymt_method}</td>
                         <td className="px-4 py-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full ${o.order_status === "Paid" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"}`}>
-                            {o.order_status}
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            o.order_status === "Completed" ? "bg-green-100 text-green-700" :
+                            o.order_status === "Cancelled" || o.order_status === "Returned" ? "bg-red-100 text-red-700" :
+                            o.paymt_status === "Paid" ? "bg-blue-100 text-blue-700" :
+                            "bg-yellow-100 text-yellow-700"
+                          }`}>
+                            {o.order_status === "Completed" ? "Completed" : o.paymt_status === "Paid" ? "Paid" : o.order_status}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">

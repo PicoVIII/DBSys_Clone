@@ -85,7 +85,11 @@ export async function POST(req: Request) {
     await conn.beginTransaction();
 
     const [orders] = await conn.query<RowDataPacket[]>(
-      `SELECT order_status FROM OrderList WHERE order_id = ? LIMIT 1`,
+      `SELECT o.order_status, p.paymt_status
+       FROM OrderList o
+       LEFT JOIN Payment p ON p.order_id = o.order_id
+       WHERE o.order_id = ?
+       LIMIT 1`,
       [order_id]
     );
 
@@ -98,11 +102,11 @@ export async function POST(req: Request) {
       );
     }
 
-    if (String(orders[0].order_status).toLowerCase() !== "paid") {
+    if (String(orders[0].paymt_status).toLowerCase() !== "paid") {
       await conn.rollback();
       conn.release();
       return NextResponse.json(
-        { error: "Shipment can only be created for approved (Paid) orders" },
+        { error: "Shipment can only be created after payment is paid" },
         { status: 400 }
       );
     }
@@ -142,6 +146,13 @@ export async function POST(req: Request) {
       VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [order_id, finalCourrId, trackingno, shipdate, expectdate, deliverydate ?? null, status]
     );
+
+    if (status === "Delivered") {
+      await conn.execute(
+        `UPDATE OrderList SET order_status = 'Completed' WHERE order_id = ?`,
+        [order_id]
+      );
+    }
 
     await conn.commit();
     conn.release();
@@ -188,9 +199,10 @@ export async function PATCH(req: Request) {
     }
 
     const [shipments] = await conn.query<RowDataPacket[]>(
-      `SELECT s.shpmt_id, o.order_status, l.user_id AS seller_user_id
+      `SELECT s.shpmt_id, o.order_status, p.paymt_status, o.order_id, l.user_id AS seller_user_id
        FROM Shipment s
        JOIN OrderList o ON o.order_id = s.order_id
+       LEFT JOIN Payment p ON p.order_id = o.order_id
        JOIN OrderItem oi ON oi.order_id = o.order_id
        JOIN Listing l ON l.listg_id = oi.listg_id
        WHERE ${where}
@@ -215,7 +227,7 @@ export async function PATCH(req: Request) {
       );
     }
 
-    if (String(shipment.order_status).toLowerCase() !== "paid") {
+    if (String(shipment.paymt_status).toLowerCase() !== "paid") {
       await conn.rollback();
       conn.release();
       return NextResponse.json(
@@ -232,6 +244,11 @@ export async function PATCH(req: Request) {
            shpmt_deliverydate = ?
        WHERE shpmt_id = ?`,
       [deliveredOn, Number(shipment.shpmt_id)]
+    );
+
+    await conn.execute(
+      `UPDATE OrderList SET order_status = 'Completed' WHERE order_id = ?`,
+      [Number(shipment.order_id)]
     );
 
     await conn.commit();

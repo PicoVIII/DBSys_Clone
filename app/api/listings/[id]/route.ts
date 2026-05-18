@@ -64,7 +64,33 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const body = await req.json() as { status?: string };
+    const body = await req.json() as { status?: string; quantity?: number };
+
+    if (body.quantity !== undefined) {
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT listg_quantity, listg_status FROM Listing WHERE listg_id = ? LIMIT 1`,
+        [id]
+      );
+
+      if (rows.length === 0) {
+        return NextResponse.json({ error: "Listing not found" }, { status: 404 });
+      }
+
+      const currentQty = Number(rows[0].listg_quantity);
+      const currentStatus = String(rows[0].listg_status).toLowerCase();
+
+      if (body.quantity > 0 && (currentQty === 0 || currentStatus === "sold")) {
+        await pool.execute<ResultSetHeader>(
+          `UPDATE Listing SET listg_quantity = ?, listg_status = 'Active' WHERE listg_id = ?`,
+          [body.quantity, id]
+        );
+      } else {
+        await pool.execute<ResultSetHeader>(
+          `UPDATE Listing SET listg_quantity = ? WHERE listg_id = ?`,
+          [body.quantity, id]
+        );
+      }
+    }
 
     if (body.status) {
       await pool.execute<ResultSetHeader>(

@@ -9,12 +9,6 @@ import { Camera, Star, Package, MessageSquare, MapPin, ShoppingCart, Heart } fro
 
 type FeedbackStats = {
   total: number;
-  averageRating: number;
-  five: number;
-  four: number;
-  three: number;
-  two: number;
-  one: number;
   positive: number;
   neutral: number;
   negative: number;
@@ -177,8 +171,8 @@ export default function ProfilePage() {
                   {feedback && feedback.total > 0 && (
                     <div className="flex items-center gap-2 mt-2">
                       <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                      <span className="text-sm font-semibold text-gray-800">{feedback.averageRating.toFixed(1)} out of 5</span>
-                      <span className="text-sm text-gray-400">({feedback.total} reviews)</span>
+                      <span className="text-sm font-semibold text-gray-800">{feedback.score}% positive feedback</span>
+                      <span className="text-sm text-gray-400">({feedback.total} ratings)</span>
                     </div>
                   )}
                 </div>
@@ -221,16 +215,16 @@ export default function ProfilePage() {
                   {feedback && (
                     <>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-500">5-star reviews</span>
-                        <span className="font-semibold">{feedback.five}</span>
+                        <span className="text-gray-500">Positive</span>
+                        <span className="font-semibold text-green-600">{feedback.positive}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-500">4-star reviews</span>
-                        <span className="font-semibold">{feedback.four}</span>
+                        <span className="text-gray-500">Neutral</span>
+                        <span className="font-semibold">{feedback.neutral}</span>
                       </div>
                       <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-500">1-3 star reviews</span>
-                        <span className="font-semibold">{feedback.one + feedback.two + feedback.three}</span>
+                        <span className="text-gray-500">Negative</span>
+                        <span className="font-semibold text-red-600">{feedback.negative}</span>
                       </div>
                     </>
                   )}
